@@ -47,5 +47,31 @@ class AlbumsHandler {
       message: 'Album berhasil dihapus',
     };
   }
+
+  async postAlbumCoverHandler(request, h) {
+    const { cover } = request.payload;
+    const { id } = request.params;
+
+    const filename = await this._storageService.writeFile(cover, cover.hapi);
+    const coverUrl = `http://${process.env.HOST}:${process.env.PORT}/upload/images/${filename}`;
+
+    await this._service.addAlbumCover(id, coverUrl);
+    return h.response({ status: 'success', message: 'Sampul berhasil diunggah' }).code(201);
+  }
+
+  async postAlbumLikeHandler(request, h) {
+    const { id: albumId } = request.params;
+    const { id: credentialId } = request.auth.credentials;
+    await this._service.addAlbumLike(credentialId, albumId);
+    return h.response({ status: 'success', message: 'Berhasil like' }).code(201);
+  }
+
+  async getAlbumLikesHandler(request, h) {
+    const { id: albumId } = request.params;
+    const { count, source } = await this._service.getAlbumLikesCount(albumId);
+    const response = h.response({ status: 'success', data: { likes: count } });
+    if (source === 'cache') response.header('X-Data-Source', 'cache');
+    return response;
+  }
 }
 module.exports = AlbumsHandler;
