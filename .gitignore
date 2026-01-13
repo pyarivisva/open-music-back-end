@@ -1,3 +1,4 @@
 node_modules/
 .env
 src/api/uploads/file
+src/api/albums/file/images

@@ -2,12 +2,16 @@ require('dotenv').config();
 
 const Hapi = require('@hapi/hapi');
 const Jwt = require('@hapi/jwt');
+const Inert = require('@hapi/inert');
+const path = require('path');
 const ClientError = require('./exceptions/ClientError');
+const config = require('./utils/config');
 
 // albums
 const albums = require('./api/albums');
 const AlbumsService = require('./services/postgres/AlbumsService');
 const AlbumsValidator = require('./validator/albums');
+const UploadsValidator = require('./validator/uploads');
 
 // songs
 const songs = require('./api/songs');
@@ -35,8 +39,19 @@ const playlists = require('./api/playlists');
 const PlaylistsService = require('./services/postgres/PlaylistsService');
 const PlaylistsValidator = require('./validator/playlists');
 
+// exports
+const _exports = require('./api/exports');
+const ProducerService = require('./services/rabbitmq/ProducerService');
+const ExportsValidator = require('./validator/exports');
+
+const StorageService = require('./services/storage/StorageService'); // [BARU] Local Storage
+const CacheService = require('./services/redis/CacheService');
+
 const init = async () => {
-  const albumsService = new AlbumsService();
+  const cacheService = new CacheService();
+  const storageService = new StorageService(path.resolve(__dirname, 'api/albums/file/images'));
+
+  const albumsService = new AlbumsService(cacheService);
   const songsService = new SongsService();
   const usersService = new UsersService();
   const authenticationsService = new AuthenticationsService();
@@ -44,8 +59,8 @@ const init = async () => {
   const playlistsService = new PlaylistsService(collaborationsService);
 
   const server = Hapi.server({
-    port: process.env.PORT,
-    host: process.env.HOST,
+    port: config.app.port,
+    host: config.app.host,
     routes: {
       cors: {
         origin: ['*'],
@@ -57,6 +72,9 @@ const init = async () => {
   await server.register([
     {
       plugin: Jwt,
+    },
+    {
+      plugin: Inert,
     },
   ]);
 
@@ -98,7 +116,9 @@ const init = async () => {
       plugin: albums,
       options: {
         service: albumsService,
+        storageService,
         validator: AlbumsValidator,
+        uploadValidator: UploadsValidator,
       },
     },
     {
@@ -124,7 +144,25 @@ const init = async () => {
         validator: PlaylistsValidator,
       },
     },
+    {
+      plugin: _exports,
+      options: {
+        service: ProducerService,
+        validator: ExportsValidator,
+        playlistsService,
+      },
+    },
   ]);
+
+  server.route({
+    method: 'GET',
+    path: '/upload/images/{param*}',
+    handler: {
+      directory: {
+        path: path.resolve(__dirname, 'api/albums/file/images'),
+      },
+    },
+  });
 
   server.ext('onPreResponse', (request, h) => {
     const { response } = request;
@@ -149,6 +187,12 @@ const init = async () => {
         message: 'terjadi kegagalan pada server kami',
       });
       newResponse.code(500);
+      return newResponse;
+    }
+
+    if (response.source && response.source.data && response.source.data.source === 'cache') {
+      const newResponse = h.response(response.source);
+      newResponse.header('X-Data-Source', 'cache');
       return newResponse;
     }
 

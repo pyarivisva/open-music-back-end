@@ -4,14 +4,22 @@ const config = require('../../utils/config');
 class CacheService {
   constructor() {
     this._client = redis.createClient({
-      socket: { host: config.redis.host },
+      socket: {
+        host: config.redis.host,
+      },
     });
-    this._client.on('error', (error) => console.error(error));
+
+    this._client.on('error', (error) => {
+      console.error(error);
+    });
+
     this._client.connect();
   }
 
   async set(key, value, expirationInSecond = 1800) {
-    await this._client.set(key, value, { EX: expirationInSecond });
+    await this._client.set(key, value, {
+      EX: expirationInSecond,
+    });
   }
 
   async get(key) {
@@ -24,4 +32,5 @@ class CacheService {
     return this._client.del(key);
   }
 }
+
 module.exports = CacheService;
